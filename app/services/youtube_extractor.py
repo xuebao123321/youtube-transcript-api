@@ -16,6 +16,7 @@ class ExtractionError(Exception):
 class YouTubeExtractor:
     """Wraps yt-dlp to extract video metadata from YouTube URLs."""
 
+    # Use "ios" client to reduce bot-detection risk (mobile API is less restricted).
     _BASE_OPTS = {
         "quiet": True,
         "no_warnings": True,
@@ -24,11 +25,13 @@ class YouTubeExtractor:
         "skip_download": True,
         "format": "best",
         "allow_unplayable_formats": True,
+        "extractor_args": {"youtube": {"player_client": ["ios"]}},
+        "user_agent": "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X; US)",
     }
 
     def __init__(self):
         # Use Chrome cookies on macOS to avoid bot detection.
-        # Falls back silently if cookies are unavailable.
+        # On Linux (Render), falls back to iOS client impersonation via _BASE_OPTS.
         self._cookies_from_browser = None
         if os.uname().sysname == "Darwin":
             try:
