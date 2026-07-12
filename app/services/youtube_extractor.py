@@ -30,9 +30,20 @@ class YouTubeExtractor:
     }
 
     def __init__(self):
-        # Use Chrome cookies on macOS to avoid bot detection.
-        # On Linux (Render), falls back to iOS client impersonation via _BASE_OPTS.
+        # Use Chrome cookies on macOS, or cookies.txt file on any platform.
+        # Falls back to iOS client impersonation if neither is available.
         self._cookies_from_browser = None
+        self._cookiefile = None
+
+        # 1) Check for cookies.txt in project root
+        cookie_file = os.path.join(os.path.dirname(__file__), "..", "..", "cookies.txt")
+        cookie_file = os.path.abspath(cookie_file)
+        if os.path.isfile(cookie_file):
+            self._cookiefile = cookie_file
+            logger.info("Using cookies.txt for yt-dlp: %s", cookie_file)
+            return
+
+        # 2) Try Chrome cookies on macOS
         if os.uname().sysname == "Darwin":
             try:
                 import subprocess
@@ -42,8 +53,11 @@ class YouTubeExtractor:
                 )
                 self._cookies_from_browser = "chrome"
                 logger.info("Using Chrome cookies for yt-dlp")
+                return
             except Exception:
-                logger.debug("Chrome cookies unavailable, proceeding without")
+                logger.debug("Chrome cookies unavailable")
+
+        logger.info("No cookies available; using iOS client impersonation")
 
     def extract_video_list(
         self, source_url: str, source_type: str, max_videos: int
@@ -67,8 +81,7 @@ class YouTubeExtractor:
             return [detail] if detail else []
 
         opts = {**self._BASE_OPTS, "extract_flat": "in_playlist"}
-        if self._cookies_from_browser:
-            opts["cookiesfrombrowser"] = (self._cookies_from_browser,)
+        self._add_cookies(opts)
         try:
             with YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(source_url, download=False)
@@ -94,11 +107,17 @@ class YouTubeExtractor:
         logger.info("Extracted %d videos from %s", len(videos), source_url)
         return videos
 
+    def _add_cookies(self, opts: dict) -> None:
+        """Add cookie options to yt-dlp opts dict."""
+        if self._cookiefile:
+            opts["cookiefile"] = self._cookiefile
+        elif self._cookies_from_browser:
+            opts["cookiesfrombrowser"] = (self._cookies_from_browser,)
+
     def extract_video_detail(self, video_url: str) -> dict | None:
         """Extract detailed metadata for a single video URL."""
         opts = {**self._BASE_OPTS}
-        if self._cookies_from_browser:
-            opts["cookiesfrombrowser"] = (self._cookies_from_browser,)
+        self._add_cookies(opts)
         try:
             with YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(video_url, download=False)
