@@ -19,14 +19,18 @@ class SubtitleService:
 
     Strategy (priority):
         1. youtube-transcript-api  (fast, no filesystem overhead)
-        2. yt-dlp subtitle download (fallback, writes VTT to disk)
+        2. Invidious captions API   (free, no auth)
+        3. yt-dlp subtitle download (fallback, writes VTT to disk)
     """
 
     def __init__(self, storage_dir: str):
         self._storage_dir = Path(storage_dir)
+        # Lazy import to avoid circular dependency
+        from app.services.invidious_service import InvidiousService
+        self._invidious = InvidiousService()
 
     # ------------------------------------------------------------------
-    def fetch_subtitles(
+    async def fetch_subtitles(
         self,
         video_id: str,
         languages: list[str],
@@ -47,8 +51,14 @@ class SubtitleService:
         if result["status"] != "none":
             return result
 
-        # Fallback: yt-dlp
-        logger.info("Transcript API returned nothing for %s, trying yt-dlp", video_id)
+        # Fallback 2: Invidious captions (free, no auth)
+        logger.info("Transcript API returned nothing for %s, trying Invidious", video_id)
+        invidious_result = await self._try_invidious_captions(video_id, languages)
+        if invidious_result and invidious_result["status"] != "none":
+            return invidious_result
+
+        # Fallback 3: yt-dlp
+        logger.info("Invidious returned nothing for %s, trying yt-dlp", video_id)
         ytdlp_result = self._try_ytdlp(video_id, languages, subtitle_mode)
         return ytdlp_result if ytdlp_result["status"] != "none" else result
 
@@ -118,6 +128,29 @@ class SubtitleService:
             "status": status,
             "languages": sorted(found_languages),
             "transcripts": transcripts,
+        }
+
+    async def _try_invidious_captions(
+        self, video_id: str, languages: list[str]
+    ) -> dict | None:
+        """Attempt to fetch captions via Invidious API."""
+        try:
+            captions = await self._invidious.fetch_captions(video_id, languages)
+        except Exception as exc:
+            logger.debug("Invidious captions failed for %s: %s", video_id, exc)
+            return None
+
+        if not captions:
+            return None
+
+        found_languages = set()
+        for c in captions:
+            found_languages.add(c["language"])
+
+        return {
+            "status": "auto",
+            "languages": sorted(found_languages),
+            "transcripts": captions,
         }
 
     @staticmethod

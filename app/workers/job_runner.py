@@ -14,7 +14,8 @@ from sqlalchemy import select
 from app.config import settings
 from app.models.job import Job
 from app.models.video import Video
-from app.services.youtube_extractor import YouTubeExtractor, ExtractionError
+from app.services.multi_source_extractor import MultiSourceExtractor
+from app.services.youtube_extractor import ExtractionError
 from app.services.subtitle_service import SubtitleService
 from app.services.transcript_converter import TranscriptConverter
 from app.services.export_service import ExportService
@@ -39,7 +40,7 @@ class JobRunner:
 
     def __init__(self, session_factory):
         self._session_factory = session_factory
-        self._extractor = YouTubeExtractor()
+        self._extractor = MultiSourceExtractor()
         self._subtitle_service = SubtitleService(settings.STORAGE_DIR)
         self._converter = TranscriptConverter()
         self._exporter = ExportService()
@@ -63,8 +64,7 @@ class JobRunner:
         # 1. Fetch video list --------------------------------------------------
         await self._update_job(job_id, status="fetching_videos")
         try:
-            videos_raw = await asyncio.to_thread(
-                self._extractor.extract_video_list,
+            videos_raw = await self._extractor.extract_video_list(
                 job.source_url,
                 job.source_type,
                 job.max_videos or 5,
@@ -119,8 +119,7 @@ class JobRunner:
         for v_obj in video_objs:
             await self._update_video(v_obj.id, status="processing")
             try:
-                sub_result = await asyncio.to_thread(
-                    self._subtitle_service.fetch_subtitles,
+                sub_result = await self._subtitle_service.fetch_subtitles(
                     v_obj.video_id,
                     languages,
                     subtitle_mode,
