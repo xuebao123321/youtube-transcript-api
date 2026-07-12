@@ -56,6 +56,40 @@ async def root():
     return {"status": "ok", "version": "1.0.0", "service": "YouTube Transcript API"}
 
 
+@app.get("/debug/sources")
+async def debug_sources():
+    """Diagnostic: test each API source for a known video."""
+    from app.services.invidious_service import InvidiousService
+    svc = InvidiousService()
+    results = {}
+
+    # Piped
+    try:
+        info = await svc._piped_video_info("jNQXAC9IVRw")
+        results["piped_video"] = "OK" if info else "empty"
+    except Exception as e:
+        results["piped_video"] = str(e)[:200]
+
+    # Invidious
+    try:
+        data = await svc._call_invidious("/api/v1/videos/jNQXAC9IVRw")
+        results["invidious_video"] = "OK" if data else "empty"
+    except Exception as e:
+        results["invidious_video"] = str(e)[:200]
+
+    # yt-dlp
+    try:
+        import asyncio
+        from app.services.youtube_extractor import YouTubeExtractor
+        yt = YouTubeExtractor()
+        info = await asyncio.to_thread(yt.extract_video_detail, "https://www.youtube.com/watch?v=jNQXAC9IVRw")
+        results["ytdlp"] = "OK" if info else "empty"
+    except Exception as e:
+        results["ytdlp"] = str(e)[:200]
+
+    return results
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch-all for unhandled exceptions."""
